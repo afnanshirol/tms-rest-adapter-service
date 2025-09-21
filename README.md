@@ -1,58 +1,126 @@
-# REST Adapter Service
+# TMS REST Adapter Service
 
-## What does this do?
-This service fetches theatre data from partners like INOX and PVR every day, normalizes it using field mappings, and stores both raw and normalized data in our database.
+A Spring Boot service that connects with theatre partners like INOX and PVR to fetch show data automatically.
 
-## How it works
-1. **Every day at 2 AM**, it wakes up and calls partner APIs
-2. **Gets different types of data** from each partner:
-   - Theatre locations and details
-   - Hall configurations and seating layouts
-   - Show schedules and timings
-   - Pricing information and offers
-   - (Any other data the partner provides)
-3. **Validates and normalizes** the data using field mappings from Config Service
-4. **Saves both raw and normalized JSON** to the database
-5. **Tracks what worked** and what failed with detailed error tracking
+## What it does
 
-## Data Processing
-```
-Partner API → Raw JSON → Field Mappings → Normalized JSON → Database
-```
+This service polls theatre partner APIs daily to collect:
+- Theatre locations and details
+- Hall configurations and seating
+- Show schedules and timings
+- Pricing information
 
-- **Raw data**: Exact partner response (for debugging)
-- **Normalized data**: Transformed using field mappings to standard format
-- **Validation**: Catches malformed JSON and missing required fields
+The data gets normalized and stored in a staging database for the main TMS system to process.
 
-## Partner APIs it calls
-- INOX: `/theatres`, `/halls`, `/shows`, etc.
-- PVR: `/locations`, `/halls`, `/shows`, etc.
-- (More partners and endpoints can be added easily)
+## Quick Start
 
-## Field Mapping
-- Partner-specific field transformations via Config Service
-- Example: INOX `theater_id` → TMS `externalId`
-- Required field validation ensures data quality
+### Prerequisites
+- Java 17+
+- Maven 3.6+
+- TMS Config Service running on port 8086
 
-## How to check if it's working
-- **Latest job status**: `GET /api/job-status/latest`
-- **Specific day**: `GET /api/job-status/2024-01-15`
-- **Only failures**: `GET /api/job-status/failed/2024-01-15`
+### Running the Service
 
-## Database tables
-- **staging_records**: Raw and normalized JSON data from partners
-- **job_executions**: Track which jobs passed/failed with error details
+1. **Start the application:**
+   ```bash
+   mvn spring-boot:run
+   ```
+
+2. **Access the service:**
+   - Main service: http://localhost:8081
+   - H2 Database console: http://localhost:8081/h2-console
+   - Health check: http://localhost:8081/actuator/health
+
+3. **Database connection (H2 Console):**
+   - JDBC URL: `jdbc:h2:mem:testdb`
+   - Username: `sa`
+   - Password: `password`
+
+## Demo Mode
+
+The service includes WireMock to simulate partner APIs for testing:
+
+### Mock Partner APIs
+- **INOX Theatres:** http://localhost:8089/v1/theatres
+- **INOX Halls:** http://localhost:8089/v1/halls
+- **INOX Shows:** http://localhost:8089/v1/shows
+- **INOX Prices:** http://localhost:8089/v1/prices
+
+## How it Works
+
+1. **Scheduled Polling:** Runs daily at 2 AM (configurable)
+2. **Data Fetching:** Gets partner configurations from TMS Config Service
+3. **API Calls:** Fetches data from partner REST APIs
+4. **Data Transformation:** Normalizes data using field mappings
+5. **Storage:** Saves both raw and processed data to staging database
 
 ## Configuration
-- Partner details and API endpoints from Config Service (port 8086)
-- Field mappings for data transformation from Config Service
-- No hardcoded values!
 
-## Future plans
-⚠️ **Note**: The job status monitoring will move to a separate service later when we have multiple adapters (file, email, etc.). This keeps things organized and gives a single place to check all adapter statuses.
-
-## Running it
-```bash
-mvn spring-boot:run
+### Scheduling
+Update the cron expression in `PartnerPollingService.java`:
+```java
+@Scheduled(cron = "0 0 2 * * *")  // Daily at 2 AM
 ```
-Runs on port 8081.
+
+### Database
+Switch from H2 to PostgreSQL in `application.yml`:
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tms_staging
+    username: tms_user
+    password: tms_password
+```
+
+### WireMock
+Disable mock APIs:
+```yaml
+wiremock:
+  enabled: false
+```
+
+### Health Checks
+- http://localhost:8081/actuator/health
+
+### Database Tables
+- `staging_records` - Raw and normalized partner data
+- `job_execution` - Polling job history and status
+
+## Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Config        │    │   REST Adapter   │    │   Partner APIs  │
+│   Service       │◄───┤   Service        ├───►│   (INOX/PVR)    │
+│   (Port 8086)   │    │   (Port 8081)    │    │   (Port 8089)   │
+└─────────────────┘    └──────────┬───────┘    └─────────────────┘
+                                  │
+                                  ▼
+                       ┌─────────────────┐
+                       │   Staging       │
+                       │   Database      │
+                       │   (H2/PostgreSQL)│
+                       └─────────────────┘
+```
+
+## Development
+
+### Adding New Partners
+
+1. **Add partner config** in TMS Config Service
+2. **Add field mappings** for data transformation
+3. **Update WireMock** with partner's API format (for testing)
+
+### Changing Polling Schedule
+
+Edit the `@Scheduled` annotation:
+```java
+@Scheduled(cron = "0 */30 * * * *")  // Every 30 minutes
+```
+
+### Error Handling
+
+Failed records are saved with:
+- Status: `FAILED`
+- Raw data preserved
+- Error logged for investigation

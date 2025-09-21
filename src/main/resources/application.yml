@@ -21,6 +21,21 @@ spring:
     console:
       enabled: true
 
+# Feign clients
+feign:
+  client:
+    config:
+      tms-config-service:
+        url: ${CONFIG_SERVICE_URL:http://localhost:8086}
+        read-timeout: 10000
+        connect-timeout: 5000
+
+# WireMock configuration (simulates external partner APIs)
+wiremock:
+  enabled: ${WIREMOCK_ENABLED:true}
+  port: 8089
+  base-url: http://localhost:8089
+
 # Monitoring
 management:
   endpoints:
